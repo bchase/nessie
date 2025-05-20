@@ -4,12 +4,13 @@
 //// `inet_res` and `inet` modules. Most of the functions and types are simply
 //// Gleam representations of their Erlang counterparts.
 
-import gleam/list
-import gleam/function
-import gleam/result
-import gleam/dynamic.{type Decoder, type Dynamic}
+import gleam/dynamic.{type Dynamic}
+import gleam/dynamic/decode.{type DecodeError, type Decoder}
 import gleam/erlang/atom.{type Atom}
 import gleam/erlang/charlist.{type Charlist}
+import gleam/function
+import gleam/list
+import gleam/result
 
 /// Nameserver address and port.
 pub type Nameserver =
@@ -126,39 +127,37 @@ pub fn string_to_ip(ip_addr: String) -> Result(IPAddress, String) {
   |> result.map_error(atom.to_string)
   |> result.map(fn(dyn) {
     dyn
-    |> dynamic.tuple4(dynamic.int, dynamic.int, dynamic.int, dynamic.int)
-    |> result.map(IPV4)
-    |> result.or(
-      dyn
-      |> ip_decoder(),
-    )
+    |> decode.run(ip_decoder())
     |> result.replace_error("decode_error")
   })
   |> result.flatten()
 }
 
-/// Returns a `gleam/dynamic.Decoder` for decoding an IP address tuple.
+/// Returns a `gleam/dynamic/decode.Decoder` for decoding an IP address tuple.
 pub fn ip_decoder() -> Decoder(IPAddress) {
-  fn(value) {
-    value
-    |> dynamic.tuple4(dynamic.int, dynamic.int, dynamic.int, dynamic.int)
-    |> result.map(IPV4)
-    |> result.lazy_or(fn() {
-      value
-      |> dynamic.decode8(
-        fn(i1, i2, i3, i4, i5, i6, i7, i8) { #(i1, i2, i3, i4, i5, i6, i7, i8) },
-        dynamic.element(0, dynamic.int),
-        dynamic.element(1, dynamic.int),
-        dynamic.element(2, dynamic.int),
-        dynamic.element(3, dynamic.int),
-        dynamic.element(4, dynamic.int),
-        dynamic.element(5, dynamic.int),
-        dynamic.element(6, dynamic.int),
-        dynamic.element(7, dynamic.int),
-      )
-      |> result.map(IPV6)
-    })
-  }
+  decode.one_of(ipv6_decoder(), [ipv4_decoder()])
+}
+
+fn ipv4_decoder() -> Decoder(IPAddress) {
+  use x1 <- decode.field(0, decode.int)
+  use x2 <- decode.field(1, decode.int)
+  use x3 <- decode.field(2, decode.int)
+  use x4 <- decode.field(3, decode.int)
+
+  decode.success(IPV4(#(x1, x2, x3, x4)))
+}
+
+fn ipv6_decoder() -> Decoder(IPAddress) {
+  use x1 <- decode.field(0, decode.int)
+  use x2 <- decode.field(1, decode.int)
+  use x3 <- decode.field(2, decode.int)
+  use x4 <- decode.field(3, decode.int)
+  use x5 <- decode.field(4, decode.int)
+  use x6 <- decode.field(5, decode.int)
+  use x7 <- decode.field(6, decode.int)
+  use x8 <- decode.field(7, decode.int)
+
+  decode.success(IPV6(#(x1, x2, x3, x4, x5, x6, x7, x8)))
 }
 
 /// Looks up a record of the specified type for the given name.
@@ -390,7 +389,7 @@ fn to_soa(erl_soa: ErlSoa) -> SOARecord {
 }
 
 @external(erlang, "nessie_inet_res_ffi", "charlist_from_dynamic")
-fn charlist_from_dynamic(d: Dynamic) -> Result(Charlist, dynamic.DecodeErrors)
+fn charlist_from_dynamic(d: Dynamic) -> Result(Charlist, List(DecodeError))
 
 @external(erlang, "nessie_inet_res_ffi", "getbyname")
 fn do_getbyname_string(
