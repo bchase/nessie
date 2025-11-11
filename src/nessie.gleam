@@ -286,30 +286,55 @@ pub fn gethostbyaddr(
 
 fn to_erl_resolver_option(option: ResolverOption) -> ErlOptionTuple {
   let #(opt_name, opt_value) = case option {
-    INet6(inet6) -> #("inet6", dynamic.from(inet6))
-    Recurse(recurse) -> #("recurse", dynamic.from(recurse))
-    Retry(retry) -> #("retry", dynamic.from(retry))
-    TimeoutMillis(timeout) -> #("timeout", dynamic.from(timeout))
+    INet6(inet6) -> #("inet6", dynamic.bool(inet6))
+    Recurse(recurse) -> #("recurse", dynamic.bool(recurse))
+    Retry(retry) -> #("retry", dynamic.int(retry))
+    TimeoutMillis(timeout) -> #("timeout", dynamic.int(timeout))
     NxdomainReply(nxdomain_reply) -> #(
       "nxdomain_reply",
-      dynamic.from(nxdomain_reply),
+      dynamic.bool(nxdomain_reply),
     )
     Nameservers(nameservers) -> {
       let erl_nameservers =
-        list.map(nameservers, fn(ip_port) {
+        nameservers
+        |> list.map(fn(ip_port) {
           let #(ip, port) = ip_port
-          let ip = case ip {
-            IPV4(ip) -> dynamic.from(ip)
-            IPV6(ip) -> dynamic.from(ip)
-          }
 
-          #(ip, port)
+          dynamic.array([
+            dynamic_ip(ip),
+            dynamic.int(port),
+          ])
         })
-      #("nameservers", dynamic.from(erl_nameservers))
+        |> dynamic.list
+
+      #("nameservers", erl_nameservers)
     }
   }
 
-  #(atom.create_from_string(opt_name), opt_value)
+  #(atom.create(opt_name), opt_value)
+}
+
+fn dynamic_ip(ip ip: IPAddress) -> Dynamic {
+  case ip {
+    IPV4(ip) ->
+      dynamic.array([
+        dynamic.int(ip.0),
+        dynamic.int(ip.1),
+        dynamic.int(ip.2),
+        dynamic.int(ip.3),
+      ])
+    IPV6(ip) ->
+      dynamic.array([
+        dynamic.int(ip.0),
+        dynamic.int(ip.1),
+        dynamic.int(ip.2),
+        dynamic.int(ip.3),
+        dynamic.int(ip.4),
+        dynamic.int(ip.5),
+        dynamic.int(ip.6),
+        dynamic.int(ip.7),
+      ])
+  }
 }
 
 type ErlOptionTuple =
@@ -359,8 +384,9 @@ fn to_hostent(
 fn from_dns_name(dyn: Dynamic) -> String {
   let atom_from_dynamic = fn() {
     dyn
-    |> atom.from_dynamic()
-    |> result.map(atom.to_string)
+    |> atom.cast_from_dynamic()
+    |> atom.to_string
+    |> Ok
   }
 
   dyn
